@@ -7,7 +7,7 @@ on:
   #     - main
 
 env:
-  AWS_REGION: ap-south-1
+  AWS_REGION: us-east-1
   ECR_REPOSITORY: myapp
   CONTAINER_NAME: myapp
   HOST_PORT: 80
