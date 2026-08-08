@@ -1,0 +1,118 @@
+name: Build and Deploy to EC2
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches:
+  #     - main
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: myapp
+  CONTAINER_NAME: myapp
+  HOST_PORT: 80
+  CONTAINER_PORT: 8000
+
+jobs:
+
+  build-and-deploy:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # -------------------------
+      # 1. Checkout
+      # -------------------------
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+
+      # -------------------------
+      # 2. Configure AWS
+      # -------------------------
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+
+      # -------------------------
+      # 3. Login to ECR
+      # -------------------------
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+
+      # -------------------------
+      # 4. Build Docker image
+      # -------------------------
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }} \
+            -t ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest \
+            .
+
+
+      # -------------------------
+      # 5. Push Docker image
+      # -------------------------
+      - name: Push Docker image
+        run: |
+          docker push \
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+          docker push \
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+
+
+      # -------------------------
+      # 6. Deploy to EC2
+      # -------------------------
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+
+            echo "Logging into ECR..."
+
+            aws ecr get-login-password \
+              --region ${{ env.AWS_REGION }} \
+              | docker login \
+              --username AWS \
+              --password-stdin \
+              ${{ steps.login-ecr.outputs.registry }}
+
+
+            echo "Pulling latest image..."
+
+            docker pull \
+              ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+
+            echo "Stopping old container..."
+
+            docker stop ${{ env.CONTAINER_NAME }} || true
+
+            docker rm ${{ env.CONTAINER_NAME }} || true
+
+
+            echo "Starting new container..."
+
+            docker run -d \
+              --name ${{ env.CONTAINER_NAME }} \
+              --restart unless-stopped \
+              -p ${{ env.HOST_PORT }}:${{ env.CONTAINER_PORT }} \
+              ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+
+            echo "Deployment completed."
+
+            docker ps
