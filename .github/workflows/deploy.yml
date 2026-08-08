@@ -12,7 +12,7 @@ env:
   CONTAINER_NAME: myapp
   HOST_PORT: 80
   CONTAINER_PORT: 8000
-
+  USERNAME: ec2-user
 jobs:
 
   build-and-deploy:
@@ -77,7 +77,7 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
-          username: ubuntu
+          username: ${{ env.USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
 
